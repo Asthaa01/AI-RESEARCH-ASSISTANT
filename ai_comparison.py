@@ -1,9 +1,14 @@
 import os
+import time
 
 from google import genai
 
-# Change this if Google retires/renames the model (see ai.google.dev/gemini-api/docs/models)
-MODEL_NAME = "gemini-3.5-flash"
+# Tried in order. If one is overloaded or unavailable, the next one is used.
+# Check ai.google.dev/gemini-api/docs/models if Google renames or retires a model.
+MODEL_NAMES = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
+
+# Temporary / model-side problems worth retrying: busy, rate limit, model not found
+RETRYABLE_CODES = {404, 429, 500, 502, 503, 504}
 
 _client = None
 
@@ -62,9 +67,32 @@ Use bullet points where appropriate.
 Base the comparison only on the information provided.
 """
 
-    response = _get_client().models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-    )
+    client = _get_client()
+    last_error = None
 
-    return response.text or "The model returned an empty response. Please try again."
+    for model_name in MODEL_NAMES:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                return response.text or (
+                    "The model returned an empty response. Please try again."
+                )
+            except Exception as error:
+                code = getattr(error, "code", None)
+                text = str(error)
+                retryable = code in RETRYABLE_CODES or any(
+                    word in text for word in ("UNAVAILABLE", "RESOURCE_EXHAUSTED")
+                )
+                if not retryable:
+                    raise  # e.g. invalid API key - fail immediately
+                last_error = error
+                if attempt == 0:
+                    time.sleep(2)  # short pause, then one retry on same model
+
+    raise RuntimeError(
+        "Gemini is busy right now. Please wait a minute and try again. "
+        f"(Last error: {last_error})"
+    )
