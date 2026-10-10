@@ -1,0 +1,13 @@
+# secrets - NEVER commit these
+.streamlit/secrets.toml
+.env
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# big local-only data files (GitHub rejects files > 100 MB)
+*.csv
+app_backup.py
